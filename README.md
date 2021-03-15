@@ -11,7 +11,10 @@ A simple usage example:
 import 'package:dartson/dartson.dart';
 
 main() {
-  var awesome = new Awesome();
+  const object = new MyObject();
+  var json = Dartson.SerializeObject(object);
+  
+  var result = Dartson.DeserializeObject(json);
 }
 ```
 
