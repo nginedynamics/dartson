@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:mirrors';
 
+import 'package:dartson/src/typeService.dart';
+
 import 'activatorService.dart';
 
 class SerializationService {
@@ -11,8 +13,27 @@ class SerializationService {
 
       properties.forEach((key, value) {
         var classObject = false;
+        var added = false;
         if (value.owner.simpleName == mirror.type.simpleName && value.simpleName != mirror.type.simpleName) {
-          var propertyMirror = reflect(mirror.getField(value.simpleName).reflectee);
+          InstanceMirror propertyMirror = reflect(mirror.getField(value.simpleName).reflectee);
+
+          if (propertyMirror.type.isSubclassOf(reflectClass([].runtimeType)) && propertyMirror.hasReflectee && propertyMirror.reflectee != null) {
+              if (!TypeService.IsSimpleType(propertyMirror.type.typeArguments.first.reflectedType)) {
+                var listObject = [];
+                  for (var item in propertyMirror.reflectee) {
+                    if (iteration == null) {
+                      iteration = 0;
+                    } else {
+                      iteration++;
+                    }
+                    listObject.add(SerializeProperties(item, iteration));
+                  }
+
+                  jsonProperties.addAll({ MirrorSystem.getName(value.simpleName): listObject});
+                  added = true;
+              }
+          }
+
           propertyMirror.type.declarations.forEach((subKey, subValue) {
             if (
             subValue.owner.simpleName == propertyMirror.type.simpleName
@@ -32,7 +53,7 @@ class SerializationService {
               iteration++;
             }
             jsonProperties.addAll({ MirrorSystem.getName(value.simpleName): SerializeProperties(mirror.getField(value.simpleName).reflectee, iteration) });
-          } else {
+          } else if (!added) {
             jsonProperties.addAll({ MirrorSystem.getName(value.simpleName): mirror.getField(value.simpleName).reflectee });
           }
         }
@@ -57,14 +78,31 @@ class SerializationService {
       jsonProperties ??= jsonDecode(json) as Map<String, dynamic>;
 
       jsonProperties.forEach((key, value) {
-        var mapType = <String, dynamic>{}.runtimeType;
-        var listType = [].runtimeType;
+        Symbol propertySymbol;
         VariableMirror propertyMirror = mirror.declarations[MirrorSystem.getSymbol(key)];
         var propertyType = propertyMirror.type.reflectedType;
+        ClassMirror propertyTypeClassMirror = reflectClass(propertyType);
+        for (var declaration in propertyTypeClassMirror.declarations.values) {
+          if (declaration is MethodMirror && declaration.isConstructor) {
+            propertySymbol = declaration.constructorName;
+          }
+        }
+        var mapType = <String, dynamic>{}.runtimeType;
+        var listType = [].runtimeType;
+
+
         if (value.runtimeType == mapType) {
           mirrorInstance.setField(MirrorSystem.getSymbol(key), DeserializeProperties('', propertyType, value));
         } else if (value.runtimeType == listType) {
-          mirrorInstance.setField(MirrorSystem.getSymbol(key), value as List);
+          var newValue = ActivatorService.createInstance(propertyType) as List;
+          for (var item in value) {
+            if (item.runtimeType == <String, dynamic>{}.runtimeType) {
+                newValue.add(DeserializeProperties('', propertyMirror.type.typeArguments.first.reflectedType, item));
+            } else {
+              newValue.add(item);
+            }
+          }
+          mirrorInstance.setField(MirrorSystem.getSymbol(key), newValue);
         } else {
           mirrorInstance.setField(MirrorSystem.getSymbol(key), value);
         }
